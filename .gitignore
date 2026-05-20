@@ -1,0 +1,12 @@
+# Environnement virtuel
+.venv/
+
+# Données brutes (volumineuses)
+data/raw/
+
+# Python
+__pycache__/
+*.pyc
+
+# Jupyter
+.ipynb_checkpoints/

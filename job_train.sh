@@ -11,6 +11,7 @@
 module purge
 module load python/3.11 cuda/12.4 miniconda3/25.5.1
 
+eval "$(conda shell.bash hook)"
 conda activate face-occlusion
 
 cd ~/Data-Challenge-Telecom-Paris-Face-Occlusion

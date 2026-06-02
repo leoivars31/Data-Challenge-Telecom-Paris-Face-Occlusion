@@ -9,9 +9,8 @@
 #SBATCH --time=12:00:00
 
 module purge
-module load python/3.11 cuda/12.4
+module load python/3.11 cuda/12.4 miniconda3/25.5.1
 
-source ~/miniconda3/etc/profile.d/conda.sh
 conda activate face-occlusion
 
 cd ~/Data-Challenge-Telecom-Paris-Face-Occlusion
@@ -25,7 +24,7 @@ echo "=========================================="
 
 python -m src.train \
     --data_root data/raw \
-    --batch_size 32 \
+    --batch_size 64 \
     --num_epochs 20 \
     --freeze_epochs 2 \
     --lr_head 1e-4 \

@@ -10,21 +10,28 @@ from src.dataset import get_dataloaders
 from src.model import FaceOcclusionModel
 
 
-def train_one_epoch(model, loader, optimizer, device):
+def train_one_epoch(model, loader, optimizer, device, scaler=None):
     model.train()
     total_loss = 0.0
     n_batches = 0
+    use_amp = scaler is not None
 
     for imgs, targets, genders in tqdm(loader, desc="  Train", leave=False):
         imgs = imgs.to(device)
         targets = targets.to(device)
 
-        preds = model(imgs)
-        loss = weighted_mse_loss(preds, targets)
+        with torch.amp.autocast("cuda", enabled=use_amp):
+            preds = model(imgs)
+            loss = weighted_mse_loss(preds, targets)
 
         optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        if use_amp:
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            optimizer.step()
 
         total_loss += loss.item()
         n_batches += 1
@@ -33,7 +40,7 @@ def train_one_epoch(model, loader, optimizer, device):
 
 
 @torch.no_grad()
-def validate(model, loader, device):
+def validate(model, loader, device, use_amp=False):
     model.eval()
     all_preds = []
     all_targets = []
@@ -45,8 +52,9 @@ def validate(model, loader, device):
         imgs = imgs.to(device)
         targets = targets.to(device)
 
-        preds = model(imgs)
-        loss = weighted_mse_loss(preds, targets)
+        with torch.amp.autocast("cuda", enabled=use_amp):
+            preds = model(imgs)
+            loss = weighted_mse_loss(preds, targets)
 
         total_loss += loss.item()
         n_batches += 1
@@ -83,6 +91,12 @@ def train(
         print(f"GPU: {torch.cuda.get_device_name(0)}")
         print(f"GPU memory: {torch.cuda.get_device_properties(0).total_mem / 1024**3:.1f} GB")
 
+    # Mixed precision
+    use_amp = device.type == "cuda"
+    scaler = torch.amp.GradScaler("cuda") if use_amp else None
+    if use_amp:
+        print("Mixed precision (AMP) enabled")
+
     # Data
     train_loader, val_loader, _, _ = get_dataloaders(
         batch_size=batch_size, seed=seed, data_root=data_root
@@ -116,8 +130,8 @@ def train(
                 optimizer, T_max=num_epochs - freeze_epochs
             )
 
-        train_loss = train_one_epoch(model, train_loader, optimizer, device)
-        val_loss, val_score, err_f, err_m = validate(model, val_loader, device)
+        train_loss = train_one_epoch(model, train_loader, optimizer, device, scaler=scaler)
+        val_loss, val_score, err_f, err_m = validate(model, val_loader, device, use_amp=use_amp)
 
         if epoch > freeze_epochs:
             scheduler.step()

@@ -1,8 +1,15 @@
 # Environnement virtuel
 .venv/
 
+# Fichiers locaux avec infos personnelles
+docs/*.local.md
+
 # Données brutes (volumineuses)
 data/raw/
+*.zip
+
+# Checkpoints du modèle
+data/submissions/checkpoints/
 
 # Python
 __pycache__/
@@ -10,3 +17,7 @@ __pycache__/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Slurm logs
+*.out
+*.err

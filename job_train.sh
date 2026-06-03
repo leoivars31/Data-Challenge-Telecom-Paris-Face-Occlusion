@@ -23,14 +23,24 @@ nvidia-smi
 python -c "import torch; print(f'PyTorch {torch.__version__}, CUDA available: {torch.cuda.is_available()}')"
 echo "=========================================="
 
+RUN_DIR="data/submissions/checkpoints/run_$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$RUN_DIR"
+echo "Checkpoint dir: $RUN_DIR"
+
 python -m src.train \
     --data_root data/raw \
+    --checkpoint_dir "$RUN_DIR" \
     --batch_size 64 \
     --num_epochs 20 \
     --freeze_epochs 2 \
     --lr_head 1e-4 \
     --lr_backbone 1e-5 \
-    --patience 5
+    --patience 5 \
+    --fairness_lambda 1.0
+
+# Symlink latest run for easy access
+ln -sfn "$(basename "$RUN_DIR")" data/submissions/checkpoints/latest
+echo "Symlinked latest -> $(basename "$RUN_DIR")"
 
 echo "=========================================="
 echo "Training done. Generating predictions..."
@@ -38,6 +48,8 @@ echo "=========================================="
 
 python -m src.predict \
     --data_root data/raw \
+    --checkpoint_path "$RUN_DIR/best_model.pt" \
+    --output_path "$RUN_DIR/test_predictions.csv" \
     --batch_size 64
 
 echo "=========================================="

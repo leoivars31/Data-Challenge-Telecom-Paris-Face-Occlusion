@@ -18,6 +18,26 @@ def weighted_mse_loss(pred, target):
     return (w * (pred - target) ** 2).sum() / w.sum()
 
 
+def fairness_loss(pred, target, genders, fairness_lambda=1.0):
+    """
+    Weighted MSE + fairness regularization penalizing the gender error gap.
+    loss = weighted_mse + lambda * |weighted_mse_F - weighted_mse_M|
+    """
+    base_loss = weighted_mse_loss(pred, target)
+
+    mask_f = (genders == 0.0)
+    mask_m = (genders == 1.0)
+
+    # Need both genders in the batch for the fairness term
+    if mask_f.sum() < 2 or mask_m.sum() < 2:
+        return base_loss
+
+    err_f = weighted_mse_loss(pred[mask_f], target[mask_f])
+    err_m = weighted_mse_loss(pred[mask_m], target[mask_m])
+
+    return base_loss + fairness_lambda * torch.abs(err_f - err_m)
+
+
 def compute_score(preds, targets, genders):
     """
     Compute the challenge score.

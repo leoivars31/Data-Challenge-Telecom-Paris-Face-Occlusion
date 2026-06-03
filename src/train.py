@@ -5,12 +5,12 @@ import torch
 import numpy as np
 from tqdm import tqdm
 
-from src.utils import set_seed, weighted_mse_loss, compute_score
+from src.utils import set_seed, weighted_mse_loss, fairness_loss, compute_score
 from src.dataset import get_dataloaders
 from src.model import FaceOcclusionModel
 
 
-def train_one_epoch(model, loader, optimizer, device, scaler=None):
+def train_one_epoch(model, loader, optimizer, device, scaler=None, fairness_lambda=0.0):
     model.train()
     total_loss = 0.0
     n_batches = 0
@@ -19,10 +19,14 @@ def train_one_epoch(model, loader, optimizer, device, scaler=None):
     for imgs, targets, genders in tqdm(loader, desc="  Train", leave=False):
         imgs = imgs.to(device)
         targets = targets.to(device)
+        genders = genders.to(device)
 
         with torch.amp.autocast("cuda", enabled=use_amp):
             preds = model(imgs)
-            loss = weighted_mse_loss(preds, targets)
+            if fairness_lambda > 0:
+                loss = fairness_loss(preds, targets, genders, fairness_lambda)
+            else:
+                loss = weighted_mse_loss(preds, targets)
 
         optimizer.zero_grad()
         if use_amp:
@@ -83,6 +87,7 @@ def train(
     seed=42,
     checkpoint_dir="data/submissions/checkpoints",
     data_root=None,
+    fairness_lambda=0.0,
 ):
     set_seed(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -130,7 +135,7 @@ def train(
                 optimizer, T_max=num_epochs - freeze_epochs
             )
 
-        train_loss = train_one_epoch(model, train_loader, optimizer, device, scaler=scaler)
+        train_loss = train_one_epoch(model, train_loader, optimizer, device, scaler=scaler, fairness_lambda=fairness_lambda)
         val_loss, val_score, err_f, err_m = validate(model, val_loader, device, use_amp=use_amp)
 
         if epoch > freeze_epochs:
@@ -187,6 +192,8 @@ if __name__ == "__main__":
     parser.add_argument("--lr_backbone", type=float, default=1e-5)
     parser.add_argument("--patience", type=int, default=5)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--fairness_lambda", type=float, default=0.0,
+                        help="Fairness regularization weight (0=off, 1=equal to base loss)")
     parser.add_argument("--checkpoint_dir", type=str, default="data/submissions/checkpoints")
     args = parser.parse_args()
 
@@ -199,6 +206,7 @@ if __name__ == "__main__":
         lr_backbone=args.lr_backbone,
         patience=args.patience,
         seed=args.seed,
+        fairness_lambda=args.fairness_lambda,
         checkpoint_dir=args.checkpoint_dir,
         data_root=args.data_root,
     )

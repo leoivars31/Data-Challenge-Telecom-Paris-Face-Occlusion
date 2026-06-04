@@ -1,5 +1,6 @@
 import argparse
 import json
+import math
 import os
 import torch
 import numpy as np
@@ -79,11 +80,12 @@ def validate(model, loader, device, use_amp=False):
 def train(
     backbone_name="convnext_tiny.fb_in22k_ft_in1k",
     batch_size=32,
-    num_epochs=20,
+    num_epochs=30,
     freeze_epochs=2,
-    lr_head=1e-4,
-    lr_backbone=1e-5,
-    patience=5,
+    lr_head=3e-4,
+    lr_backbone=3e-5,
+    patience=7,
+    warmup_epochs=2,
     seed=42,
     checkpoint_dir="data/submissions/checkpoints",
     data_root=None,
@@ -114,34 +116,43 @@ def train(
     best_score = float("inf")
     epochs_no_improve = 0
     history = {"epoch": [], "train_loss": [], "val_loss": [],
-               "val_score": [], "err_f": [], "err_m": []}
+               "val_score": [], "err_f": [], "err_m": [], "lr": []}
+
+    # --- Phase 1: freeze backbone, train head only ---
+    model.freeze_backbone()
+    optimizer = torch.optim.AdamW(
+        model.head.parameters(), lr=lr_head, weight_decay=1e-2
+    )
+
+    # --- Phase 2 optimizer (created after freeze_epochs) ---
+    finetune_epochs = num_epochs - freeze_epochs
 
     for epoch in range(1, num_epochs + 1):
         print(f"\nEpoch {epoch}/{num_epochs}")
 
-        # Freeze/unfreeze backbone
-        if epoch <= freeze_epochs:
-            model.freeze_backbone()
-            optimizer = torch.optim.AdamW(
-                model.head.parameters(), lr=lr_head, weight_decay=1e-2
-            )
-        elif epoch == freeze_epochs + 1:
+        # Transition: unfreeze backbone and create finetuning optimizer + scheduler
+        if epoch == freeze_epochs + 1:
             model.unfreeze_backbone()
             optimizer = torch.optim.AdamW([
                 {"params": model.backbone.parameters(), "lr": lr_backbone},
                 {"params": model.head.parameters(), "lr": lr_head},
             ], weight_decay=1e-2)
-            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                optimizer, T_max=num_epochs - freeze_epochs
-            )
+            # Cosine schedule with linear warmup
+            def lr_lambda(current_step, warmup_steps=warmup_epochs, total_steps=finetune_epochs):
+                if current_step < warmup_steps:
+                    return float(current_step) / float(max(1, warmup_steps))
+                progress = float(current_step - warmup_steps) / float(max(1, total_steps - warmup_steps))
+                return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
+            scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
         train_loss = train_one_epoch(model, train_loader, optimizer, device, scaler=scaler, fairness_lambda=fairness_lambda)
         val_loss, val_score, err_f, err_m = validate(model, val_loader, device, use_amp=use_amp)
 
+        current_lr = optimizer.param_groups[-1]['lr']
         if epoch > freeze_epochs:
             scheduler.step()
 
-        print(f"  train_loss={train_loss:.6f}  val_loss={val_loss:.6f}")
+        print(f"  train_loss={train_loss:.6f}  val_loss={val_loss:.6f}  lr={current_lr:.2e}")
         print(f"  val_score={val_score:.6f}  err_f={err_f:.6f}  err_m={err_m:.6f}")
 
         history["epoch"].append(epoch)
@@ -150,6 +161,7 @@ def train(
         history["val_score"].append(val_score)
         history["err_f"].append(err_f)
         history["err_m"].append(err_m)
+        history["lr"].append(current_lr)
 
         # Save history to JSON after each epoch
         history_path = os.path.join(checkpoint_dir, "history.json")
@@ -185,12 +197,13 @@ if __name__ == "__main__":
     parser.add_argument("--data_root", type=str, default=None,
                         help="Path to data root containing train.csv and Crop_224_5fp_100K/")
     parser.add_argument("--backbone", type=str, default="convnext_tiny.fb_in22k_ft_in1k")
-    parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--num_epochs", type=int, default=20)
+    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--num_epochs", type=int, default=30)
     parser.add_argument("--freeze_epochs", type=int, default=2)
-    parser.add_argument("--lr_head", type=float, default=1e-4)
-    parser.add_argument("--lr_backbone", type=float, default=1e-5)
-    parser.add_argument("--patience", type=int, default=5)
+    parser.add_argument("--lr_head", type=float, default=3e-4)
+    parser.add_argument("--lr_backbone", type=float, default=3e-5)
+    parser.add_argument("--patience", type=int, default=7)
+    parser.add_argument("--warmup_epochs", type=int, default=2)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--fairness_lambda", type=float, default=0.0,
                         help="Fairness regularization weight (0=off, 1=equal to base loss)")
@@ -205,6 +218,7 @@ if __name__ == "__main__":
         lr_head=args.lr_head,
         lr_backbone=args.lr_backbone,
         patience=args.patience,
+        warmup_epochs=args.warmup_epochs,
         seed=args.seed,
         fairness_lambda=args.fairness_lambda,
         checkpoint_dir=args.checkpoint_dir,

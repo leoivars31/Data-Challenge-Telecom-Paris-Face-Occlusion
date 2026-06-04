@@ -9,7 +9,10 @@ class FaceOcclusionModel(nn.Module):
         num_features = self.backbone.num_features
         self.head = nn.Sequential(
             nn.Dropout(drop_rate),
-            nn.Linear(num_features, 1),
+            nn.Linear(num_features, 256),
+            nn.GELU(),
+            nn.Dropout(drop_rate / 2),
+            nn.Linear(256, 1),
             nn.Sigmoid(),
         )
 

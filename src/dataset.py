@@ -23,10 +23,12 @@ def get_train_transforms():
     return T.Compose([
         T.Resize((224, 224)),
         T.RandomHorizontalFlip(p=0.5),
-        T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-        T.RandomAffine(degrees=10, translate=(0.05, 0.05), scale=(0.95, 1.05)),
+        T.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2, hue=0.1),
+        T.RandomAffine(degrees=15, translate=(0.08, 0.08), scale=(0.9, 1.1)),
+        T.GaussianBlur(kernel_size=5, sigma=(0.1, 2.0)),
         T.ToTensor(),
         T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        T.RandomErasing(p=0.25, scale=(0.02, 0.15), ratio=(0.3, 3.3)),
     ])
 
 

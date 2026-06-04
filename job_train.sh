@@ -30,13 +30,14 @@ echo "Checkpoint dir: $RUN_DIR"
 python -m src.train \
     --data_root data/raw \
     --checkpoint_dir "$RUN_DIR" \
-    --batch_size 64 \
-    --num_epochs 20 \
+    --batch_size 128 \
+    --num_epochs 30 \
     --freeze_epochs 2 \
-    --lr_head 1e-4 \
-    --lr_backbone 1e-5 \
-    --patience 5 \
-    --fairness_lambda 1.0
+    --lr_head 3e-4 \
+    --lr_backbone 3e-5 \
+    --warmup_epochs 2 \
+    --patience 7 \
+    --fairness_lambda 0.0
 
 # Symlink latest run for easy access
 ln -sfn "$(basename "$RUN_DIR")" data/submissions/checkpoints/latest

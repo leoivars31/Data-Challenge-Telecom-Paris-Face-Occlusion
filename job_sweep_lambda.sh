@@ -40,12 +40,13 @@ for LAMBDA in $LAMBDAS; do
     python -m src.train \
         --data_root data/raw \
         --checkpoint_dir "$RUN_DIR" \
-        --batch_size 64 \
-        --num_epochs 20 \
+        --batch_size 128 \
+        --num_epochs 30 \
         --freeze_epochs 2 \
-        --lr_head 1e-4 \
-        --lr_backbone 1e-5 \
-        --patience 5 \
+        --lr_head 3e-4 \
+        --lr_backbone 3e-5 \
+        --warmup_epochs 2 \
+        --patience 7 \
         --fairness_lambda "$LAMBDA"
 
     echo "Done lambda=$LAMBDA"

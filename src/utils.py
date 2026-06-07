@@ -12,14 +12,74 @@ def set_seed(seed=42):
     torch.backends.cudnn.benchmark = False
 
 
-def weighted_mse_loss(pred, target):
-    """Custom weighted MSE loss matching the challenge metric."""
+# ---------------------------------------------------------------------------
+# Internal helper
+# ---------------------------------------------------------------------------
+
+def _weighted_err(pred, target):
+    """Weighted error for a single group (torch tensors)."""
     w = 1.0 / 30.0 + target
     return (w * (pred - target) ** 2).sum() / w.sum()
 
 
-def fairness_loss(pred, target, genders, fairness_lambda=1.0):
+# ---------------------------------------------------------------------------
+# Losses
+# ---------------------------------------------------------------------------
+
+def weighted_mse_loss(pred, target, genders=None, male_factor=1.0):
+    """Custom weighted MSE loss matching the challenge metric.
+
+    If genders and male_factor != 1.0, male samples get extra weight.
+    Backward-compatible: call without genders gives the original result.
     """
+    w = 1.0 / 30.0 + target
+    if genders is not None and male_factor != 1.0:
+        w = w * torch.where(
+            genders == 1.0,
+            torch.as_tensor(male_factor, device=w.device, dtype=w.dtype),
+            torch.ones_like(w),
+        )
+    return (w * (pred - target) ** 2).sum() / w.sum()
+
+
+def metric_surrogate_loss(pred, target, genders):
+    """Differentiable surrogate of the challenge score.
+
+    Returns 0.5*(err_f + err_m) + |err_f - err_m|.
+    Falls back to global weighted_mse if a gender has < 2 samples.
+    """
+    mask_f = (genders == 0.0)
+    mask_m = (genders == 1.0)
+
+    if mask_f.sum() < 2 or mask_m.sum() < 2:
+        return weighted_mse_loss(pred, target)
+
+    err_f = _weighted_err(pred[mask_f], target[mask_f])
+    err_m = _weighted_err(pred[mask_m], target[mask_m])
+
+    return 0.5 * (err_f + err_m) + torch.abs(err_f - err_m)
+
+
+def groupdro_loss(pred, target, genders):
+    """Group DRO loss: worst-group weighted error (max of err_f, err_m).
+
+    Falls back to global weighted_mse if a gender has < 2 samples.
+    """
+    mask_f = (genders == 0.0)
+    mask_m = (genders == 1.0)
+
+    if mask_f.sum() < 2 or mask_m.sum() < 2:
+        return weighted_mse_loss(pred, target)
+
+    err_f = _weighted_err(pred[mask_f], target[mask_f])
+    err_m = _weighted_err(pred[mask_m], target[mask_m])
+
+    return torch.max(err_f, err_m)
+
+
+def fairness_loss(pred, target, genders, fairness_lambda=1.0):
+    """(Deprecated: prefer male_factor or groupdro_loss — see README.)
+
     Weighted MSE + fairness regularization penalizing the gender error gap.
     loss = weighted_mse + lambda * |weighted_mse_F - weighted_mse_M|
     """
@@ -28,15 +88,18 @@ def fairness_loss(pred, target, genders, fairness_lambda=1.0):
     mask_f = (genders == 0.0)
     mask_m = (genders == 1.0)
 
-    # Need both genders in the batch for the fairness term
     if mask_f.sum() < 2 or mask_m.sum() < 2:
         return base_loss
 
-    err_f = weighted_mse_loss(pred[mask_f], target[mask_f])
-    err_m = weighted_mse_loss(pred[mask_m], target[mask_m])
+    err_f = _weighted_err(pred[mask_f], target[mask_f])
+    err_m = _weighted_err(pred[mask_m], target[mask_m])
 
     return base_loss + fairness_lambda * torch.abs(err_f - err_m)
 
+
+# ---------------------------------------------------------------------------
+# Evaluation metric (DO NOT MODIFY BEHAVIOR)
+# ---------------------------------------------------------------------------
 
 def compute_score(preds, targets, genders):
     """

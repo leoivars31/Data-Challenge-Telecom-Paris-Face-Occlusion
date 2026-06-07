@@ -6,7 +6,7 @@ from PIL import Image
 import torch
 from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as T
-from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.model_selection import StratifiedShuffleSplit, StratifiedKFold
 
 
 DEFAULT_DATA_ROOT = "data/raw"
@@ -19,17 +19,28 @@ IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
 
-def get_train_transforms():
-    return T.Compose([
-        T.Resize((224, 224)),
-        T.RandomHorizontalFlip(p=0.5),
-        T.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2, hue=0.1),
-        T.RandomAffine(degrees=15, translate=(0.08, 0.08), scale=(0.9, 1.1)),
-        T.GaussianBlur(kernel_size=5, sigma=(0.1, 2.0)),
-        T.ToTensor(),
-        T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
-        T.RandomErasing(p=0.25, scale=(0.02, 0.15), ratio=(0.3, 3.3)),
-    ])
+def get_train_transforms(occlusion_safe=True):
+    if occlusion_safe:
+        return T.Compose([
+            T.Resize((224, 224)),
+            T.RandomHorizontalFlip(p=0.5),
+            T.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2, hue=0.1),
+            T.RandomAffine(degrees=10, translate=(0.04, 0.04), scale=(0.95, 1.05)),
+            T.GaussianBlur(kernel_size=5, sigma=(0.1, 2.0)),
+            T.ToTensor(),
+            T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ])
+    else:
+        return T.Compose([
+            T.Resize((224, 224)),
+            T.RandomHorizontalFlip(p=0.5),
+            T.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2, hue=0.1),
+            T.RandomAffine(degrees=15, translate=(0.08, 0.08), scale=(0.9, 1.1)),
+            T.GaussianBlur(kernel_size=5, sigma=(0.1, 2.0)),
+            T.ToTensor(),
+            T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+            T.RandomErasing(p=0.25, scale=(0.02, 0.15), ratio=(0.3, 3.3)),
+        ])
 
 
 def get_val_transforms():
@@ -109,14 +120,15 @@ def split_train_val(df, val_ratio=0.15, seed=42):
     return df_train, df_val
 
 
-def get_dataloaders(batch_size=32, val_ratio=0.15, num_workers=4, seed=42, data_root=None):
+def get_dataloaders(batch_size=32, val_ratio=0.15, num_workers=4, seed=42,
+                    data_root=None, occlusion_safe=True):
     if data_root is None:
         data_root = DEFAULT_DATA_ROOT
     image_dir = _image_dir(data_root)
     df_full, df_test = load_dataframes(data_root=data_root)
     df_train, df_val = split_train_val(df_full, val_ratio=val_ratio, seed=seed)
 
-    train_ds = FaceOcclusionDataset(df_train, image_dir=image_dir, transform=get_train_transforms())
+    train_ds = FaceOcclusionDataset(df_train, image_dir=image_dir, transform=get_train_transforms(occlusion_safe))
     val_ds = FaceOcclusionDataset(df_val, image_dir=image_dir, transform=get_val_transforms())
     test_ds = FaceOcclusionDataset(df_test, image_dir=image_dir, transform=get_val_transforms(), is_test=True)
 
@@ -133,3 +145,50 @@ def get_dataloaders(batch_size=32, val_ratio=0.15, num_workers=4, seed=42, data_
         num_workers=num_workers, pin_memory=True,
     )
     return train_loader, val_loader, test_loader, df_test
+
+
+# ---------------------------------------------------------------------------
+# K-Fold
+# ---------------------------------------------------------------------------
+
+def _make_strat_key(df):
+    """Create stratification key from gender + occlusion quantile bins."""
+    df = df.copy()
+    df["occ_bin"] = pd.qcut(df["FaceOcclusion"], q=10, labels=False, duplicates="drop")
+    df["strat_key"] = df["gender"].astype(str) + "_" + df["occ_bin"].astype(str)
+    return df
+
+
+def get_kfold_splits(df, n_splits=5, seed=42):
+    """Return list of (train_idx, val_idx) for stratified K-fold."""
+    df_strat = _make_strat_key(df)
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    return list(skf.split(df_strat, df_strat["strat_key"]))
+
+
+def get_fold_dataloaders(fold, n_splits=5, batch_size=32, occlusion_safe=True,
+                         seed=42, data_root=None, num_workers=4):
+    """Build train/val loaders for a given fold."""
+    if data_root is None:
+        data_root = DEFAULT_DATA_ROOT
+    image_dir = _image_dir(data_root)
+    df_full, _ = load_dataframes(data_root=data_root)
+
+    splits = get_kfold_splits(df_full, n_splits=n_splits, seed=seed)
+    train_idx, val_idx = splits[fold]
+
+    df_train = df_full.iloc[train_idx]
+    df_val = df_full.iloc[val_idx]
+
+    train_ds = FaceOcclusionDataset(df_train, image_dir=image_dir, transform=get_train_transforms(occlusion_safe))
+    val_ds = FaceOcclusionDataset(df_val, image_dir=image_dir, transform=get_val_transforms())
+
+    train_loader = DataLoader(
+        train_ds, batch_size=batch_size, shuffle=True,
+        num_workers=num_workers, pin_memory=True,
+    )
+    val_loader = DataLoader(
+        val_ds, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=True,
+    )
+    return train_loader, val_loader

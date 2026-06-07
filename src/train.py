@@ -6,16 +6,34 @@ import torch
 import numpy as np
 from tqdm import tqdm
 
-from src.utils import set_seed, weighted_mse_loss, fairness_loss, compute_score
-from src.dataset import get_dataloaders
+from src.utils import (
+    set_seed, weighted_mse_loss, fairness_loss, metric_surrogate_loss,
+    groupdro_loss, compute_score,
+)
+from src.dataset import get_dataloaders, get_fold_dataloaders
 from src.model import FaceOcclusionModel
 
 
-def train_one_epoch(model, loader, optimizer, device, scaler=None, fairness_lambda=0.0):
+def _select_loss(loss_name, preds, targets, genders, male_factor, fairness_lambda):
+    """Select and compute the loss based on config."""
+    if loss_name == "surrogate":
+        return metric_surrogate_loss(preds, targets, genders)
+    elif loss_name == "groupdro":
+        return groupdro_loss(preds, targets, genders)
+    elif fairness_lambda > 0:
+        return fairness_loss(preds, targets, genders, fairness_lambda)
+    else:
+        return weighted_mse_loss(preds, targets, genders=genders, male_factor=male_factor)
+
+
+def train_one_epoch(model, loader, optimizer, device, scaler=None,
+                    fairness_lambda=0.0, male_factor=1.0, loss_name="wmse",
+                    predict_gender=False, gender_loss_weight=0.2):
     model.train()
     total_loss = 0.0
     n_batches = 0
     use_amp = scaler is not None
+    bce = torch.nn.BCEWithLogitsLoss() if predict_gender else None
 
     for imgs, targets, genders in tqdm(loader, desc="  Train", leave=False):
         imgs = imgs.to(device)
@@ -23,11 +41,14 @@ def train_one_epoch(model, loader, optimizer, device, scaler=None, fairness_lamb
         genders = genders.to(device)
 
         with torch.amp.autocast("cuda", enabled=use_amp):
-            preds = model(imgs)
-            if fairness_lambda > 0:
-                loss = fairness_loss(preds, targets, genders, fairness_lambda)
+            if predict_gender:
+                occ_preds, gender_logits = model(imgs)
+                loss_occ = _select_loss(loss_name, occ_preds, targets, genders, male_factor, fairness_lambda)
+                loss_gender = bce(gender_logits, genders)
+                loss = loss_occ + gender_loss_weight * loss_gender
             else:
-                loss = weighted_mse_loss(preds, targets)
+                preds = model(imgs)
+                loss = _select_loss(loss_name, preds, targets, genders, male_factor, fairness_lambda)
 
         optimizer.zero_grad()
         if use_amp:
@@ -45,7 +66,7 @@ def train_one_epoch(model, loader, optimizer, device, scaler=None, fairness_lamb
 
 
 @torch.no_grad()
-def validate(model, loader, device, use_amp=False):
+def validate(model, loader, device, use_amp=False, predict_gender=False):
     model.eval()
     all_preds = []
     all_targets = []
@@ -58,13 +79,16 @@ def validate(model, loader, device, use_amp=False):
         targets = targets.to(device)
 
         with torch.amp.autocast("cuda", enabled=use_amp):
-            preds = model(imgs)
-            loss = weighted_mse_loss(preds, targets)
+            if predict_gender:
+                occ_preds, _ = model(imgs)
+            else:
+                occ_preds = model(imgs)
+            loss = weighted_mse_loss(occ_preds, targets)
 
         total_loss += loss.item()
         n_batches += 1
 
-        all_preds.append(preds.cpu())
+        all_preds.append(occ_preds.cpu())
         all_targets.append(targets.cpu())
         all_genders.append(genders)
 
@@ -90,6 +114,13 @@ def train(
     checkpoint_dir="data/submissions/checkpoints",
     data_root=None,
     fairness_lambda=0.0,
+    male_factor=1.0,
+    loss_name="wmse",
+    occlusion_safe=True,
+    fold=None,
+    n_splits=5,
+    predict_gender=False,
+    gender_loss_weight=0.2,
 ):
     set_seed(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -98,6 +129,12 @@ def train(
         print(f"GPU: {torch.cuda.get_device_name(0)}")
         print(f"GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
 
+    # Log config
+    print(f"Loss: {loss_name} | male_factor: {male_factor} | fairness_lambda: {fairness_lambda}")
+    print(f"occlusion_safe: {occlusion_safe} | predict_gender: {predict_gender}")
+    if fold is not None:
+        print(f"Fold: {fold}/{n_splits}")
+
     # Mixed precision
     use_amp = device.type == "cuda"
     scaler = torch.amp.GradScaler("cuda") if use_amp else None
@@ -105,12 +142,21 @@ def train(
         print("Mixed precision (AMP) enabled")
 
     # Data
-    train_loader, val_loader, _, _ = get_dataloaders(
-        batch_size=batch_size, seed=seed, data_root=data_root
-    )
+    if fold is not None:
+        train_loader, val_loader = get_fold_dataloaders(
+            fold=fold, n_splits=n_splits, batch_size=batch_size,
+            occlusion_safe=occlusion_safe, seed=seed, data_root=data_root,
+        )
+    else:
+        train_loader, val_loader, _, _ = get_dataloaders(
+            batch_size=batch_size, seed=seed, data_root=data_root,
+            occlusion_safe=occlusion_safe,
+        )
 
     # Model
-    model = FaceOcclusionModel(backbone_name=backbone_name).to(device)
+    model = FaceOcclusionModel(
+        backbone_name=backbone_name, predict_gender=predict_gender
+    ).to(device)
 
     os.makedirs(checkpoint_dir, exist_ok=True)
     best_score = float("inf")
@@ -118,11 +164,17 @@ def train(
     history = {"epoch": [], "train_loss": [], "val_loss": [],
                "val_score": [], "err_f": [], "err_m": [], "lr": []}
 
+    # File naming
+    suffix = f"_fold{fold}" if fold is not None else ""
+    ckpt_filename = f"best_model{suffix}.pt"
+    history_filename = f"history{suffix}.json"
+
     # --- Phase 1: freeze backbone, train head only ---
     model.freeze_backbone()
-    optimizer = torch.optim.AdamW(
-        model.head.parameters(), lr=lr_head, weight_decay=1e-2
-    )
+    head_params = list(model.head.parameters())
+    if predict_gender:
+        head_params += list(model.gender_head.parameters())
+    optimizer = torch.optim.AdamW(head_params, lr=lr_head, weight_decay=1e-2)
 
     # --- Phase 2 optimizer (created after freeze_epochs) ---
     finetune_epochs = num_epochs - freeze_epochs
@@ -133,10 +185,13 @@ def train(
         # Transition: unfreeze backbone and create finetuning optimizer + scheduler
         if epoch == freeze_epochs + 1:
             model.unfreeze_backbone()
-            optimizer = torch.optim.AdamW([
+            param_groups = [
                 {"params": model.backbone.parameters(), "lr": lr_backbone},
                 {"params": model.head.parameters(), "lr": lr_head},
-            ], weight_decay=1e-2)
+            ]
+            if predict_gender:
+                param_groups.append({"params": model.gender_head.parameters(), "lr": lr_head})
+            optimizer = torch.optim.AdamW(param_groups, weight_decay=1e-2)
             # Cosine schedule with linear warmup
             def lr_lambda(current_step, warmup_steps=warmup_epochs, total_steps=finetune_epochs):
                 if current_step < warmup_steps:
@@ -145,8 +200,15 @@ def train(
                 return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
             scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
-        train_loss = train_one_epoch(model, train_loader, optimizer, device, scaler=scaler, fairness_lambda=fairness_lambda)
-        val_loss, val_score, err_f, err_m = validate(model, val_loader, device, use_amp=use_amp)
+        train_loss = train_one_epoch(
+            model, train_loader, optimizer, device, scaler=scaler,
+            fairness_lambda=fairness_lambda, male_factor=male_factor,
+            loss_name=loss_name, predict_gender=predict_gender,
+            gender_loss_weight=gender_loss_weight,
+        )
+        val_loss, val_score, err_f, err_m = validate(
+            model, val_loader, device, use_amp=use_amp, predict_gender=predict_gender,
+        )
 
         current_lr = optimizer.param_groups[-1]['lr']
         if epoch > freeze_epochs:
@@ -164,7 +226,7 @@ def train(
         history["lr"].append(current_lr)
 
         # Save history to JSON after each epoch
-        history_path = os.path.join(checkpoint_dir, "history.json")
+        history_path = os.path.join(checkpoint_dir, history_filename)
         with open(history_path, "w") as f:
             json.dump(history, f, indent=2)
 
@@ -172,12 +234,17 @@ def train(
         if val_score < best_score:
             best_score = val_score
             epochs_no_improve = 0
-            ckpt_path = os.path.join(checkpoint_dir, "best_model.pt")
+            ckpt_path = os.path.join(checkpoint_dir, ckpt_filename)
             torch.save({
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
                 "best_score": best_score,
                 "backbone_name": backbone_name,
+                "predict_gender": predict_gender,
+                "fold": fold,
+                "male_factor": male_factor,
+                "loss": loss_name,
+                "seed": seed,
             }, ckpt_path)
             print(f"  -> Saved best model (score={best_score:.6f})")
         else:
@@ -206,7 +273,24 @@ if __name__ == "__main__":
     parser.add_argument("--warmup_epochs", type=int, default=2)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--fairness_lambda", type=float, default=0.0,
-                        help="Fairness regularization weight (0=off, 1=equal to base loss)")
+                        help="(Deprecated) Fairness regularization weight")
+    parser.add_argument("--male_factor", type=float, default=1.0,
+                        help="Weight multiplier for male samples in loss (>1 = more weight on males)")
+    parser.add_argument("--loss", type=str, default="wmse",
+                        choices=["wmse", "surrogate", "groupdro"],
+                        help="Loss function to use")
+    parser.add_argument("--occlusion_safe", action="store_true", default=True,
+                        help="Use occlusion-safe augmentations (default)")
+    parser.add_argument("--no_occlusion_safe", dest="occlusion_safe", action="store_false",
+                        help="Use aggressive augmentations (legacy)")
+    parser.add_argument("--fold", type=int, default=None,
+                        help="K-fold index (0..n_splits-1). If None, use single 85/15 split")
+    parser.add_argument("--n_splits", type=int, default=5,
+                        help="Number of folds for K-fold CV")
+    parser.add_argument("--predict_gender", action="store_true",
+                        help="Enable auxiliary gender prediction head")
+    parser.add_argument("--gender_loss_weight", type=float, default=0.2,
+                        help="Weight of the gender BCE loss (multi-task)")
     parser.add_argument("--checkpoint_dir", type=str, default="data/submissions/checkpoints")
     args = parser.parse_args()
 
@@ -221,6 +305,13 @@ if __name__ == "__main__":
         warmup_epochs=args.warmup_epochs,
         seed=args.seed,
         fairness_lambda=args.fairness_lambda,
+        male_factor=args.male_factor,
+        loss_name=args.loss,
+        occlusion_safe=args.occlusion_safe,
+        fold=args.fold,
+        n_splits=args.n_splits,
+        predict_gender=args.predict_gender,
+        gender_loss_weight=args.gender_loss_weight,
         checkpoint_dir=args.checkpoint_dir,
         data_root=args.data_root,
     )

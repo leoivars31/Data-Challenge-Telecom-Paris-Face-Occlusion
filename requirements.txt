@@ -10,3 +10,5 @@ timm
 torch
 torchvision
 tqdm
+torchvision
+tqdm

@@ -97,3 +97,65 @@ python -m src.predict --data_root data/raw
 | `--no_tta` | - | Désactiver le TTA (predict.py) |
 
 Les checkpoints sont sauvegardés dans `data/submissions/checkpoints/` et les prédictions dans `data/submissions/test_predictions.csv`.
+
+---
+
+## Améliorations (v2)
+
+### Nouveaux flags `src/train.py`
+
+| Flag | Défaut | Description |
+|---|---|---|
+| `--male_factor` | 1.0 | Surpondération des hommes dans la loss (>1 = plus de poids) |
+| `--loss` | `wmse` | Loss : `wmse`, `surrogate` (métrique diff.), `groupdro` (worst-group) |
+| `--occlusion_safe` / `--no_occlusion_safe` | safe | Augmentations douces (retire RandomErasing) |
+| `--fold` | None | Index de fold K-fold (0..n_splits-1) |
+| `--n_splits` | 5 | Nombre de folds |
+| `--predict_gender` | off | Active la tête auxiliaire de prédiction du genre |
+| `--gender_loss_weight` | 0.2 | Poids de la BCE genre dans la loss totale |
+
+### Nouveaux flags `src/predict.py`
+
+| Flag | Défaut | Description |
+|---|---|---|
+| `--checkpoints` | - | Plusieurs checkpoints pour ensemble (nargs+) |
+| `--tta_scales` | `1.0` | Échelles TTA (ex: `1.0 0.9 1.1`) |
+| `--calibrators` | - | Pickle de calibrateurs pour calibration conditionnelle au genre |
+
+### Workflow recommandé
+
+1. **Sweep `male_factor`** sur fold 0 → trouver le meilleur facteur
+   ```bash
+   sbatch job_sweep_male_factor.sh
+   ```
+
+2. **K-fold 5 plis** avec le meilleur `male_factor` + `--occlusion_safe` + `--predict_gender`
+   ```bash
+   MALE_FACTOR=2.0 sbatch job_kfold.sh
+   ```
+
+3. **Fit calibrateurs** par genre sur la val de chaque fold
+   ```bash
+   python -m src.calibration --checkpoint path/to/best_model_fold0.pt --fold 0
+   ```
+
+4. **Predict en ensemble** des 5 folds + TTA multi-échelle + calibration
+   ```bash
+   python -m src.predict \
+       --checkpoints fold0/best_model_fold0.pt fold1/best_model_fold1.pt ... \
+       --tta_scales 1.0 0.9 1.1 \
+       --calibrators path/to/calibrators.pkl
+   ```
+
+5. **Soumettre** et garder un budget de soumissions pour calibrer val↔leaderboard.
+
+### Diagnostics
+
+```bash
+python -m src.diagnostics --checkpoint path/to/best_model.pt --data_root data/raw
+```
+
+Produit :
+- Distribution d'occlusion par genre (PNG)
+- Décomposition de l'erreur par genre × bin d'occlusion
+- Corrélation `male_factor` vs gap (si plusieurs historiques disponibles)

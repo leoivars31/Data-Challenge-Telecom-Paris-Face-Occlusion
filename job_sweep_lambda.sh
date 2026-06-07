@@ -105,8 +105,8 @@ print(best_dir)
 echo "Generating predictions from best model: $BEST_LAMBDA"
 python -m src.predict \
     --data_root data/raw \
-    --checkpoint_path "$BEST_LAMBDA/best_model.pt" \
-    --output_path "$BEST_LAMBDA/test_predictions.csv" \
+    --checkpoint "$BEST_LAMBDA/best_model.pt" \
+    --output "$BEST_LAMBDA/test_predictions.csv" \
     --batch_size 64
 
 # Symlink best run

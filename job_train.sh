@@ -49,8 +49,8 @@ echo "=========================================="
 
 python -m src.predict \
     --data_root data/raw \
-    --checkpoint_path "$RUN_DIR/best_model.pt" \
-    --output_path "$RUN_DIR/test_predictions.csv" \
+    --checkpoint "$RUN_DIR/best_model.pt" \
+    --output "$RUN_DIR/test_predictions.csv" \
     --batch_size 64
 
 echo "=========================================="

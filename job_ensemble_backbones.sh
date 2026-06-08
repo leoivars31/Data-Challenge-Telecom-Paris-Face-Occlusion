@@ -53,7 +53,7 @@ python -m src.train \
     --patience 7 \
     --loss wmse \
     --male_factor "$MALE_FACTOR" \
-    --occlusion_safe \
+    --no_occlusion_safe \
     --predict_gender
 
 echo "=========================================="

@@ -46,7 +46,6 @@ python -m src.train \
     --no_occlusion_safe \
     --fold "$FOLD" \
     --n_splits 5 \
-    --predict_gender \
     --backbone "$BACKBONE"
 
 echo "=========================================="

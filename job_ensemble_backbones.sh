@@ -53,8 +53,7 @@ python -m src.train \
     --patience 7 \
     --loss wmse \
     --male_factor "$MALE_FACTOR" \
-    --no_occlusion_safe \
-    --predict_gender
+    --no_occlusion_safe
 
 echo "=========================================="
 echo "$BACKBONE done at $(date)"

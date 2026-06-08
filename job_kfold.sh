@@ -43,7 +43,7 @@ python -m src.train \
     --patience 7 \
     --loss wmse \
     --male_factor "$MALE_FACTOR" \
-    --occlusion_safe \
+    --no_occlusion_safe \
     --fold "$FOLD" \
     --n_splits 5 \
     --predict_gender \

@@ -18,7 +18,7 @@ conda activate face-occlusion
 cd ~/Data-Challenge-Telecom-Paris-Face-Occlusion
 
 FOLD=$SLURM_ARRAY_TASK_ID
-MALE_FACTOR=${MALE_FACTOR:-2.0}
+MALE_FACTOR=${MALE_FACTOR:-1.0}
 BACKBONE=${BACKBONE:-"convnext_tiny.fb_in22k_ft_in1k"}
 BATCH_SIZE=${BATCH_SIZE:-64}
 GRAD_ACCUM=${GRAD_ACCUM:-2}
@@ -46,7 +46,6 @@ python -m src.train \
     --patience 7 \
     --loss wmse \
     --male_factor "$MALE_FACTOR" \
-    --no_occlusion_safe \
     --fold "$FOLD" \
     --n_splits 5 \
     --backbone "$BACKBONE"

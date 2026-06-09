@@ -28,14 +28,16 @@ def _select_loss(loss_name, preds, targets, genders, male_factor, fairness_lambd
 
 def train_one_epoch(model, loader, optimizer, device, scaler=None,
                     fairness_lambda=0.0, male_factor=1.0, loss_name="wmse",
-                    predict_gender=False, gender_loss_weight=0.2):
+                    predict_gender=False, gender_loss_weight=0.2,
+                    grad_accum_steps=1):
     model.train()
     total_loss = 0.0
     n_batches = 0
     use_amp = scaler is not None
     bce = torch.nn.BCEWithLogitsLoss() if predict_gender else None
 
-    for imgs, targets, genders in tqdm(loader, desc="  Train", leave=False):
+    optimizer.zero_grad()
+    for step, (imgs, targets, genders) in enumerate(tqdm(loader, desc="  Train", leave=False)):
         imgs = imgs.to(device)
         targets = targets.to(device)
         genders = genders.to(device)
@@ -50,16 +52,21 @@ def train_one_epoch(model, loader, optimizer, device, scaler=None,
                 preds = model(imgs)
                 loss = _select_loss(loss_name, preds, targets, genders, male_factor, fairness_lambda)
 
-        optimizer.zero_grad()
+        loss = loss / grad_accum_steps
         if use_amp:
             scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
         else:
             loss.backward()
-            optimizer.step()
 
-        total_loss += loss.item()
+        if (step + 1) % grad_accum_steps == 0 or (step + 1) == len(loader):
+            if use_amp:
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                optimizer.step()
+            optimizer.zero_grad()
+
+        total_loss += loss.item() * grad_accum_steps
         n_batches += 1
 
     return total_loss / n_batches
@@ -121,6 +128,8 @@ def train(
     n_splits=5,
     predict_gender=False,
     gender_loss_weight=0.2,
+    grad_accum_steps=1,
+    val_ratio=0.15,
 ):
     set_seed(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -130,7 +139,7 @@ def train(
         print(f"GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
 
     # Log config
-    print(f"Loss: {loss_name} | male_factor: {male_factor} | fairness_lambda: {fairness_lambda}")
+    print(f"Loss: {loss_name} | male_factor: {male_factor} | fairness_lambda: {fairness_lambda} | grad_accum: {grad_accum_steps}")
     print(f"occlusion_safe: {occlusion_safe} | predict_gender: {predict_gender}")
     if fold is not None:
         print(f"Fold: {fold}/{n_splits}")
@@ -150,7 +159,7 @@ def train(
     else:
         train_loader, val_loader, _, _ = get_dataloaders(
             batch_size=batch_size, seed=seed, data_root=data_root,
-            occlusion_safe=occlusion_safe,
+            occlusion_safe=occlusion_safe, val_ratio=val_ratio,
         )
 
     # Model
@@ -205,6 +214,7 @@ def train(
             fairness_lambda=fairness_lambda, male_factor=male_factor,
             loss_name=loss_name, predict_gender=predict_gender,
             gender_loss_weight=gender_loss_weight,
+            grad_accum_steps=grad_accum_steps,
         )
         val_loss, val_score, err_f, err_m = validate(
             model, val_loader, device, use_amp=use_amp, predict_gender=predict_gender,
@@ -292,6 +302,10 @@ if __name__ == "__main__":
     parser.add_argument("--gender_loss_weight", type=float, default=0.2,
                         help="Weight of the gender BCE loss (multi-task)")
     parser.add_argument("--checkpoint_dir", type=str, default="data/submissions/checkpoints")
+    parser.add_argument("--grad_accum_steps", type=int, default=1,
+                        help="Gradient accumulation steps (effective_batch = batch_size * steps)")
+    parser.add_argument("--val_ratio", type=float, default=0.15,
+                        help="Validation split ratio when not using k-fold (default: 0.15 = 85/15)")
     args = parser.parse_args()
 
     train(
@@ -314,4 +328,6 @@ if __name__ == "__main__":
         gender_loss_weight=args.gender_loss_weight,
         checkpoint_dir=args.checkpoint_dir,
         data_root=args.data_root,
+        grad_accum_steps=args.grad_accum_steps,
+        val_ratio=args.val_ratio,
     )

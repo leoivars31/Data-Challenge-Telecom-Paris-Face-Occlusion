@@ -20,6 +20,8 @@ cd ~/Data-Challenge-Telecom-Paris-Face-Occlusion
 FOLD=$SLURM_ARRAY_TASK_ID
 MALE_FACTOR=${MALE_FACTOR:-2.0}
 BACKBONE=${BACKBONE:-"convnext_tiny.fb_in22k_ft_in1k"}
+BATCH_SIZE=${BATCH_SIZE:-64}
+GRAD_ACCUM=${GRAD_ACCUM:-2}
 RUN_DIR="data/submissions/checkpoints/kfold_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$RUN_DIR"
 
@@ -34,7 +36,8 @@ nvidia-smi
 python -m src.train \
     --data_root data/raw \
     --checkpoint_dir "$RUN_DIR" \
-    --batch_size 128 \
+    --batch_size "$BATCH_SIZE" \
+    --grad_accum_steps "$GRAD_ACCUM" \
     --num_epochs 30 \
     --freeze_epochs 2 \
     --lr_head 3e-4 \

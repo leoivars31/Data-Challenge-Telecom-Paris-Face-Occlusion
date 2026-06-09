@@ -27,6 +27,8 @@ RUN_DIR="data/submissions/checkpoints/run_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$RUN_DIR"
 echo "Checkpoint dir: $RUN_DIR"
 
+VAL_RATIO=${VAL_RATIO:-0.15}
+
 python -m src.train \
     --data_root data/raw \
     --checkpoint_dir "$RUN_DIR" \
@@ -37,7 +39,8 @@ python -m src.train \
     --lr_backbone 3e-5 \
     --warmup_epochs 2 \
     --patience 7 \
-    --fairness_lambda 0.0
+    --fairness_lambda 0.0 \
+    --val_ratio "$VAL_RATIO"
 
 # Symlink latest run for easy access
 ln -sfn "$(basename "$RUN_DIR")" data/submissions/checkpoints/latest

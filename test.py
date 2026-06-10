@@ -25,10 +25,13 @@ std_eva02_base = np.std([v[1] for v in eva02_base.values()])
 convnext_tiny = {
     0: ["data/submissions/checkpoints/kfold_20260610_124017", 0.001761],
     1: ["data/submissions/checkpoints/kfold_20260610_133205", 0.001714],
-    2: ["data/submissions/checkpoints/kfold_20260610_150730", None],
-    3: ["data/submissions/checkpoints/kfold_20260610_152706", None],
-    4: ["data/submissions/checkpoints/kfold_20260610_153347", None],
+    2: ["data/submissions/checkpoints/kfold_20260610_150730", 0.001127],
+    3: ["data/submissions/checkpoints/kfold_20260610_152706", 0.001479],
+    4: ["data/submissions/checkpoints/kfold_20260610_153347", 0.001449],
 }
+
+mean_convnext_tiny = np.mean([v[1] for v in convnext_tiny.values()])
+std_convnext_tiny = np.std([v[1] for v in convnext_tiny.values()])
 
 print("ConvNeXtV2 Base:", convnextv2_base)
 print("Mean ConvNeXtV2 Base:", mean_convnextv2_base)
@@ -36,3 +39,13 @@ print("Std ConvNeXtV2 Base:", std_convnextv2_base)
 print("Eva02 Base:", eva02_base)
 print("Mean Eva02 Base:", mean_eva02_base)
 print("Std Eva02 Base:", std_eva02_base)
+print("ConvNeXt Tiny:", convnext_tiny)
+print("Mean ConvNeXt Tiny:", mean_convnext_tiny)
+print("Std ConvNeXt Tiny:", std_convnext_tiny)
+
+"""
+Premier des 3 sans early stopping (846 274-6); Le suivant sans early stopping + random erasing (846 820-2)
+"""
+
+import torch
+print(torch.__version__)

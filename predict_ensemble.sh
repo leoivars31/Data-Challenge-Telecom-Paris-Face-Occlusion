@@ -1,14 +1,18 @@
 #!/bin/bash
-# Launch all 7 ensemble predictions
-# Run after downloading checkpoints with:
-#   for d in kfold_20260610_025055 kfold_20260610_031335 kfold_20260610_044757 kfold_20260610_062159 kfold_20260610_063613 \
-#             kfold_20260610_064628 kfold_20260610_073712 kfold_20260610_091219 kfold_20260610_112136 kfold_20260610_112454 \
-#             kfold_20260610_124017 kfold_20260610_133205 kfold_20260610_150730 kfold_20260610_152706 kfold_20260610_153347; do
-#     mkdir -p data/submissions/checkpoints/$d
-#     scp ivars-25@gpu-gw.enst.fr:~/Data-Challenge-Telecom-Paris-Face-Occlusion/data/submissions/checkpoints/$d/best_model_fold*.pt data/submissions/checkpoints/$d/
-#   done
+#SBATCH --job-name=face-predict
+#SBATCH --output=%x_%j.out
+#SBATCH --error=%x_%j.err
+#SBATCH --partition=P100
+#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=24G
+#SBATCH --time=1:00:00
 
-set -e
+module purge
+module load python/3.11 cuda/12.4 miniconda3/25.5.1
+eval "$(conda shell.bash hook)"
+conda activate face-occlusion
+cd ~/Data-Challenge-Telecom-Paris-Face-Occlusion
 
 CONVNEXTV2=(
     data/submissions/checkpoints/kfold_20260610_025055/best_model_fold0.pt
@@ -34,7 +38,7 @@ TINY=(
     data/submissions/checkpoints/kfold_20260610_153347/best_model_fold4.pt
 )
 
-COMMON_ARGS="--data_root data/raw --tta_scales 1.0 0.9 1.1 --batch_size 32"
+COMMON_ARGS="--data_root data/raw --tta_scales 1.0 0.9 1.1 --batch_size 64"
 
 mkdir -p data/submissions
 
@@ -75,4 +79,3 @@ python -m src.predict $COMMON_ARGS \
 
 echo ""
 echo "Done! Fichiers générés dans data/submissions/:"
-ls data/submissions/test_pred_*.csv

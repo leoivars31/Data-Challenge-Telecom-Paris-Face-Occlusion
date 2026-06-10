@@ -22,13 +22,14 @@ MALE_FACTOR=${MALE_FACTOR:-1.0}
 BACKBONE=${BACKBONE:-"convnext_tiny.fb_in22k_ft_in1k"}
 BATCH_SIZE=${BATCH_SIZE:-64}
 GRAD_ACCUM=${GRAD_ACCUM:-2}
+RANDOM_ERASING=${RANDOM_ERASING:-0}  # 1 = --no_occlusion_safe
 RUN_DIR="data/submissions/checkpoints/kfold_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$RUN_DIR"
 
 echo "=========================================="
 echo "K-Fold training — Fold $FOLD/5"
 echo "Job $SLURM_JOB_ID.$SLURM_ARRAY_TASK_ID on $(hostname) at $(date)"
-echo "male_factor=$MALE_FACTOR | backbone=$BACKBONE"
+echo "male_factor=$MALE_FACTOR | backbone=$BACKBONE | random_erasing=$RANDOM_ERASING"
 echo "Checkpoint dir: $RUN_DIR"
 echo "=========================================="
 nvidia-smi
@@ -46,6 +47,7 @@ python -m src.train \
     --patience 30 \
     --loss wmse \
     --male_factor "$MALE_FACTOR" \
+    $([ "$RANDOM_ERASING" = "1" ] && echo "--no_occlusion_safe") \
     --fold "$FOLD" \
     --n_splits 5 \
     --backbone "$BACKBONE"

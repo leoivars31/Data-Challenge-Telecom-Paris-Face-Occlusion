@@ -38,7 +38,7 @@ python -m src.train \
     --lr_head 3e-4 \
     --lr_backbone 3e-5 \
     --warmup_epochs 2 \
-    --patience 7 \
+    --patience 30 \
     --fairness_lambda 0.0 \
     --val_ratio "$VAL_RATIO"
 

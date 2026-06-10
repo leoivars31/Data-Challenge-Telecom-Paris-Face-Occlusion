@@ -279,7 +279,7 @@ if __name__ == "__main__":
     parser.add_argument("--freeze_epochs", type=int, default=2)
     parser.add_argument("--lr_head", type=float, default=3e-4)
     parser.add_argument("--lr_backbone", type=float, default=3e-5)
-    parser.add_argument("--patience", type=int, default=7)
+    parser.add_argument("--patience", type=int, default=30)
     parser.add_argument("--warmup_epochs", type=int, default=2)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--fairness_lambda", type=float, default=0.0,

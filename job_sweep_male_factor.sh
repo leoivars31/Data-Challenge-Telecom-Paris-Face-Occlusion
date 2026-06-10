@@ -41,7 +41,7 @@ python -m src.train \
     --lr_head 3e-4 \
     --lr_backbone 3e-5 \
     --warmup_epochs 2 \
-    --patience 7 \
+    --patience 30 \
     --loss wmse \
     --male_factor "$MF" \
     --no_occlusion_safe \

@@ -1,114 +1,57 @@
 #!/bin/bash
+#SBATCH --job-name=face-kfold
+#SBATCH --output=%x_%j_%a.out
+#SBATCH --error=%x_%j_%a.err
+#SBATCH --partition=3090
+#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=16G
+#SBATCH --time=36:00:00
+#SBATCH --array=0-4
 
-set -e
+module purge
+module load python/3.11 cuda/12.4 miniconda3/25.5.1
 
-DATA_ROOT="data/raw"
+eval "$(conda shell.bash hook)"
+conda activate face-occlusion
 
-echo "=== 1 convnextv2 base ==="
-python -m src.predict \
-  --data_root $DATA_ROOT \
-  --tta_scales 1.0 0.9 1.1 \
-  --output data/submissions/test_pred_convnextv2.csv \
-  --checkpoints \
-  data/submissions/checkpoints/kfold_20260610_025055/best_model_fold0.pt \
-  data/submissions/checkpoints/kfold_20260610_031335/best_model_fold1.pt \
-  data/submissions/checkpoints/kfold_20260610_044757/best_model_fold2.pt \
-  data/submissions/checkpoints/kfold_20260610_062159/best_model_fold3.pt \
-  data/submissions/checkpoints/kfold_20260610_063613/best_model_fold4.pt
+cd ~/Data-Challenge-Telecom-Paris-Face-Occlusion
 
-echo "=== 2 eva02 base ==="
-python -m src.predict \
-  --data_root $DATA_ROOT \
-  --tta_scales 1.0 0.9 1.1 \
-  --output data/submissions/test_pred_eva02.csv \
-  --checkpoints \
-  data/submissions/checkpoints/kfold_20260610_064628/best_model_fold0.pt \
-  data/submissions/checkpoints/kfold_20260610_073712/best_model_fold1.pt \
-  data/submissions/checkpoints/kfold_20260610_091219/best_model_fold2.pt \
-  data/submissions/checkpoints/kfold_20260610_112136/best_model_fold3.pt \
-  data/submissions/checkpoints/kfold_20260610_112454/best_model_fold4.pt
+FOLD=$SLURM_ARRAY_TASK_ID
+MALE_FACTOR=${MALE_FACTOR:-1.0}
+BACKBONE=${BACKBONE:-"convnext_tiny.fb_in22k_ft_in1k"}
+BATCH_SIZE=${BATCH_SIZE:-64}
+GRAD_ACCUM=${GRAD_ACCUM:-2}
+RANDOM_ERASING=${RANDOM_ERASING:-0}  # 1 = --no_occlusion_safe
+RUN_DIR="data/submissions/checkpoints/kfold_$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$RUN_DIR"
 
-echo "=== 3 tiny ==="
-python -m src.predict \
-  --data_root $DATA_ROOT \
-  --tta_scales 1.0 0.9 1.1 \
-  --output data/submissions/test_pred_tiny.csv \
-  --checkpoints \
-  data/submissions/checkpoints/kfold_20260610_124017/best_model_fold0.pt \
-  data/submissions/checkpoints/kfold_20260610_133205/best_model_fold1.pt \
-  data/submissions/checkpoints/kfold_20260610_150730/best_model_fold2.pt \
-  data/submissions/checkpoints/kfold_20260610_152706/best_model_fold3.pt \
-  data/submissions/checkpoints/kfold_20260610_153347/best_model_fold4.pt
+echo "=========================================="
+echo "K-Fold training — Fold $FOLD/5"
+echo "Job $SLURM_JOB_ID.$SLURM_ARRAY_TASK_ID on $(hostname) at $(date)"
+echo "male_factor=$MALE_FACTOR | backbone=$BACKBONE | random_erasing=$RANDOM_ERASING"
+echo "Checkpoint dir: $RUN_DIR"
+echo "=========================================="
+nvidia-smi
 
-echo "=== 4 convnextv2 + eva02 ==="
-python -m src.predict \
-  --data_root $DATA_ROOT \
-  --tta_scales 1.0 0.9 1.1 \
-  --output data/submissions/test_pred_convnextv2_eva02.csv \
-  --checkpoints \
-  data/submissions/checkpoints/kfold_20260610_025055/best_model_fold0.pt \
-  data/submissions/checkpoints/kfold_20260610_031335/best_model_fold1.pt \
-  data/submissions/checkpoints/kfold_20260610_044757/best_model_fold2.pt \
-  data/submissions/checkpoints/kfold_20260610_062159/best_model_fold3.pt \
-  data/submissions/checkpoints/kfold_20260610_063613/best_model_fold4.pt \
-  data/submissions/checkpoints/kfold_20260610_064628/best_model_fold0.pt \
-  data/submissions/checkpoints/kfold_20260610_073712/best_model_fold1.pt \
-  data/submissions/checkpoints/kfold_20260610_091219/best_model_fold2.pt \
-  data/submissions/checkpoints/kfold_20260610_112136/best_model_fold3.pt \
-  data/submissions/checkpoints/kfold_20260610_112454/best_model_fold4.pt
+python -m src.train \
+    --data_root data/raw \
+    --checkpoint_dir "$RUN_DIR" \
+    --batch_size "$BATCH_SIZE" \
+    --grad_accum_steps "$GRAD_ACCUM" \
+    --num_epochs 30 \
+    --freeze_epochs 2 \
+    --lr_head 3e-4 \
+    --lr_backbone 3e-5 \
+    --warmup_epochs 2 \
+    --patience 30 \
+    --loss wmse \
+    --male_factor "$MALE_FACTOR" \
+    $([ "$RANDOM_ERASING" = "1" ] && echo "--no_occlusion_safe") \
+    --fold "$FOLD" \
+    --n_splits 5 \
+    --backbone "$BACKBONE"
 
-echo "=== 5 convnextv2 + tiny ==="
-python -m src.predict \
-  --data_root $DATA_ROOT \
-  --tta_scales 1.0 0.9 1.1 \
-  --output data/submissions/test_pred_convnextv2_tiny.csv \
-  --checkpoints \
-  data/submissions/checkpoints/kfold_20260610_025055/best_model_fold0.pt \
-  data/submissions/checkpoints/kfold_20260610_031335/best_model_fold1.pt \
-  data/submissions/checkpoints/kfold_20260610_044757/best_model_fold2.pt \
-  data/submissions/checkpoints/kfold_20260610_062159/best_model_fold3.pt \
-  data/submissions/checkpoints/kfold_20260610_063613/best_model_fold4.pt \
-  data/submissions/checkpoints/kfold_20260610_124017/best_model_fold0.pt \
-  data/submissions/checkpoints/kfold_20260610_133205/best_model_fold1.pt \
-  data/submissions/checkpoints/kfold_20260610_150730/best_model_fold2.pt \
-  data/submissions/checkpoints/kfold_20260610_152706/best_model_fold3.pt \
-  data/submissions/checkpoints/kfold_20260610_153347/best_model_fold4.pt
-
-echo "=== 6 eva02 + tiny ==="
-python -m src.predict \
-  --data_root $DATA_ROOT \
-  --tta_scales 1.0 0.9 1.1 \
-  --output data/submissions/test_pred_eva02_tiny.csv \
-  --checkpoints \
-  data/submissions/checkpoints/kfold_20260610_064628/best_model_fold0.pt \
-  data/submissions/checkpoints/kfold_20260610_073712/best_model_fold1.pt \
-  data/submissions/checkpoints/kfold_20260610_091219/best_model_fold2.pt \
-  data/submissions/checkpoints/kfold_20260610_112136/best_model_fold3.pt \
-  data/submissions/checkpoints/kfold_20260610_112454/best_model_fold4.pt \
-  data/submissions/checkpoints/kfold_20260610_124017/best_model_fold0.pt \
-  data/submissions/checkpoints/kfold_20260610_133205/best_model_fold1.pt \
-  data/submissions/checkpoints/kfold_20260610_150730/best_model_fold2.pt \
-  data/submissions/checkpoints/kfold_20260610_152706/best_model_fold3.pt \
-  data/submissions/checkpoints/kfold_20260610_153347/best_model_fold4.pt
-
-echo "=== 7 ALL ==="
-python -m src.predict \
-  --data_root $DATA_ROOT \
-  --tta_scales 1.0 0.9 1.1 \
-  --output data/submissions/test_pred_all15.csv \
-  --checkpoints \
-  data/submissions/checkpoints/kfold_20260610_025055/best_model_fold0.pt \
-  data/submissions/checkpoints/kfold_20260610_031335/best_model_fold1.pt \
-  data/submissions/checkpoints/kfold_20260610_044757/best_model_fold2.pt \
-  data/submissions/checkpoints/kfold_20260610_062159/best_model_fold3.pt \
-  data/submissions/checkpoints/kfold_20260610_063613/best_model_fold4.pt \
-  data/submissions/checkpoints/kfold_20260610_064628/best_model_fold0.pt \
-  data/submissions/checkpoints/kfold_20260610_073712/best_model_fold1.pt \
-  data/submissions/checkpoints/kfold_20260610_091219/best_model_fold2.pt \
-  data/submissions/checkpoints/kfold_20260610_112136/best_model_fold3.pt \
-  data/submissions/checkpoints/kfold_20260610_112454/best_model_fold4.pt \
-  data/submissions/checkpoints/kfold_20260610_124017/best_model_fold0.pt \
-  data/submissions/checkpoints/kfold_20260610_133205/best_model_fold1.pt \
-  data/submissions/checkpoints/kfold_20260610_150730/best_model_fold2.pt \
-  data/submissions/checkpoints/kfold_20260610_152706/best_model_fold3.pt \
-  data/submissions/checkpoints/kfold_20260610_153347/best_model_fold4.pt
+echo "=========================================="
+echo "Fold $FOLD done at $(date)"
+echo "=========================================="

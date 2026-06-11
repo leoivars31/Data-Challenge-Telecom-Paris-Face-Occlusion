@@ -14,6 +14,9 @@ eval "$(conda shell.bash hook)"
 conda activate face-occlusion
 cd ~/Data-Challenge-Telecom-Paris-Face-Occlusion
 
+pip install -q torch torchvision --index-url https://download.pytorch.org/whl/cu118
+
+
 CONVNEXTV2=(
     data/submissions/checkpoints/kfold_20260610_025055/best_model_fold0.pt
     data/submissions/checkpoints/kfold_20260610_031335/best_model_fold1.pt

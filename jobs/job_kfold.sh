@@ -1,7 +1,21 @@
 #!/bin/bash
+# ===========================================================================
+# K-Fold training (5 folds) — script principal de la solution finale.
+#
+# Usage (solution finale) :
+#   BACKBONE="convnextv2_base.fcmae_ft_in22k_in1k" sbatch jobs/job_kfold.sh
+#   BACKBONE="eva02_base_patch14_224.mim_in22k"     sbatch jobs/job_kfold.sh
+#
+# Variables optionnelles :
+#   BACKBONE       backbone timm (défaut: convnext_tiny.fb_in22k_ft_in1k)
+#   MALE_FACTOR    sur-pondération hommes (défaut: 1.0 — optimal en k-fold)
+#   RANDOM_ERASING 1 pour --no_occlusion_safe (défaut: 0 — régime léger)
+#   BATCH_SIZE     taille du batch (défaut: 64)
+#   GRAD_ACCUM     accumulation de gradient (défaut: 2, batch effectif = 128)
+# ===========================================================================
 #SBATCH --job-name=face-kfold
-#SBATCH --output=%x_%j_%a.out
-#SBATCH --error=%x_%j_%a.err
+#SBATCH --output=logs/%x_%j_%a.out
+#SBATCH --error=logs/%x_%j_%a.err
 #SBATCH --partition=3090
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4

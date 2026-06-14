@@ -1,13 +1,17 @@
 #!/bin/bash
+# ===========================================================================
+# Sweep male_factor × K-fold — 5 values × 5 folds = 25 runs.
+# Used to select the optimal male_factor for the final solution.
+# ===========================================================================
 #SBATCH --job-name=face-sweep-mf-kfold
-#SBATCH --output=%x_%j_%a.out
-#SBATCH --error=%x_%j_%a.err
+#SBATCH --output=logs/%x_%j_%a.out
+#SBATCH --error=logs/%x_%j_%a.err
 #SBATCH --partition=3090
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
 #SBATCH --time=12:00:00
-#SBATCH --array=0-24          # 5 male_factors x 5 folds = 25 runs
+#SBATCH --array=0-24
 
 module purge
 module load python/3.11 cuda/12.4 miniconda3/25.5.1

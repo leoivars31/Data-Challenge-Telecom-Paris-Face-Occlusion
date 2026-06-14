@@ -1,7 +1,10 @@
 #!/bin/bash
+# ===========================================================================
+# Multi-backbone training (no K-fold) — trains 3 backbones in parallel.
+# ===========================================================================
 #SBATCH --job-name=face-ensemble-bb
-#SBATCH --output=%x_%j_%a.out
-#SBATCH --error=%x_%j_%a.err
+#SBATCH --output=logs/%x_%j_%a.out
+#SBATCH --error=logs/%x_%j_%a.err
 #SBATCH --partition=3090
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4

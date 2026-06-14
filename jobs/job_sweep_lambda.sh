@@ -1,7 +1,10 @@
 #!/bin/bash
+# ===========================================================================
+# Sweep fairness_lambda — tests several regularization strengths.
+# ===========================================================================
 #SBATCH --job-name=sweep-lambda
-#SBATCH --output=%x_%j.out
-#SBATCH --error=%x_%j.err
+#SBATCH --output=logs/%x_%j.out
+#SBATCH --error=logs/%x_%j.err
 #SBATCH --partition=3090
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4

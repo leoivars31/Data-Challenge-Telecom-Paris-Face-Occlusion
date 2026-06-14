@@ -1,15 +1,20 @@
 # Environnement virtuel
 .venv/
 
-# Fichiers locaux avec infos personnelles
-docs/*.local.md
-
 # Données brutes (volumineuses)
 data/raw/
 *.zip
 
 # Checkpoints du modèle
 data/submissions/checkpoints/
+
+# Fichiers de soumission CSV (générés par predict)
+data/submissions/*.csv
+
+# Logs Slurm
+logs/
+*.out
+*.err
 
 # Python
 __pycache__/
@@ -18,6 +23,5 @@ __pycache__/
 # Jupyter
 .ipynb_checkpoints/
 
-# Slurm logs
-*.out
-*.err
+# Fichiers locaux
+docs/*.local.md

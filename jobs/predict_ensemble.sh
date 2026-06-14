@@ -1,7 +1,14 @@
 #!/bin/bash
+# ===========================================================================
+# Prédiction ensemble — génère les soumissions pour toutes les combinaisons
+# de backbones. Adapter les chemins de checkpoints ci-dessous selon les
+# timestamps des runs d'entraînement (job_kfold.sh).
+#
+# Soumission finale : CONVNEXTV2 + EVA02 (10 modèles), score LB = 0.00100
+# ===========================================================================
 #SBATCH --job-name=face-predict
-#SBATCH --output=%x_%j.out
-#SBATCH --error=%x_%j.err
+#SBATCH --output=logs/%x_%j.out
+#SBATCH --error=logs/%x_%j.err
 #SBATCH --partition=3090
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
@@ -13,8 +20,6 @@ module load python/3.11 cuda/12.4 miniconda3/25.5.1
 eval "$(conda shell.bash hook)"
 conda activate face-occlusion
 cd ~/Data-Challenge-Telecom-Paris-Face-Occlusion
-
-pip install -q torch torchvision --index-url https://download.pytorch.org/whl/cu118
 
 
 CONVNEXTV2=(

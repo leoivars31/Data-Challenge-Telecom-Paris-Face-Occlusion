@@ -1,10 +1,10 @@
 #!/bin/bash
 # ===========================================================================
-# Prédiction ensemble — génère les soumissions pour toutes les combinaisons
-# de backbones. Adapter les chemins de checkpoints ci-dessous selon les
-# timestamps des runs d'entraînement (job_kfold.sh).
+# Ensemble prediction — generates submissions for all backbone combinations.
+# Update the checkpoint paths below to match the timestamps of your training
+# runs (job_kfold.sh).
 #
-# Soumission finale : CONVNEXTV2 + EVA02 (10 modèles), score LB = 0.00100
+# Final submission: CONVNEXTV2 + EVA02 (10 models), LB score = 0.00100
 # ===========================================================================
 #SBATCH --job-name=face-predict
 #SBATCH --output=logs/%x_%j.out
@@ -65,25 +65,25 @@ python -m src.predict $COMMON_ARGS \
     --output data/submissions/test_pred_tiny.csv \
     --checkpoints "${TINY[@]}"
 
-echo "=== 4/7 convnextv2 + eva02 (10 modèles) ==="
+echo "=== 4/7 convnextv2 + eva02 (10 models) ==="
 python -m src.predict $COMMON_ARGS \
     --output data/submissions/test_pred_convnextv2_eva02.csv \
     --checkpoints "${CONVNEXTV2[@]}" "${EVA02[@]}"
 
-echo "=== 5/7 convnextv2 + tiny (10 modèles) ==="
+echo "=== 5/7 convnextv2 + tiny (10 models) ==="
 python -m src.predict $COMMON_ARGS \
     --output data/submissions/test_pred_convnextv2_tiny.csv \
     --checkpoints "${CONVNEXTV2[@]}" "${TINY[@]}"
 
-echo "=== 6/7 eva02 + tiny (10 modèles) ==="
+echo "=== 6/7 eva02 + tiny (10 models) ==="
 python -m src.predict $COMMON_ARGS \
     --output data/submissions/test_pred_eva02_tiny.csv \
     --checkpoints "${EVA02[@]}" "${TINY[@]}"
 
-echo "=== 7/7 les 3 backbones (15 modèles) ==="
+echo "=== 7/7 all 3 backbones (15 models) ==="
 python -m src.predict $COMMON_ARGS \
     --output data/submissions/test_pred_all15.csv \
     --checkpoints "${CONVNEXTV2[@]}" "${EVA02[@]}" "${TINY[@]}"
 
 echo ""
-echo "Done! Fichiers générés dans data/submissions/:"
+echo "Done! Files generated in data/submissions/:"

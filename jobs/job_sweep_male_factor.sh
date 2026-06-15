@@ -30,7 +30,7 @@ MF=${MALE_FACTORS[$MF_IDX]}
 
 BACKBONE="convnext_tiny.fb_in22k_ft_in1k"
 
-# Un seul dossier pour tout l'array (SLURM_ARRAY_JOB_ID identique pour les 25 tâches)
+# Single directory for the full array (SLURM_ARRAY_JOB_ID is shared across all 25 tasks)
 SWEEP_DIR="data/submissions/checkpoints/sweep_mf_kfold_${SLURM_ARRAY_JOB_ID}"
 RUN_DIR="$SWEEP_DIR/mf_${MF}_fold${FOLD}"
 mkdir -p "$RUN_DIR"
